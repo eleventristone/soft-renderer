@@ -4,7 +4,6 @@
 // #include "../third_party/stb_image/stb_image.h"
 
 #include <cmath>
-#include <vector>
 #include "../third_party/tgaimage/tgaimage.h"
 #include "../include/tools/file.hpp"
 #include "../include/obj/obj.hpp"
@@ -91,31 +90,7 @@ void drawModel() {
     framebuffer.write_tga_file("../temp/framebuffer.tga");
 }
 
-class Camera {
-   public:
-    Vec3f position;
-    Vec3f forward;
-    Vec3f upward;
-
-    Camera(float* pos, float* fwd, float* up)
-        : position{pos}, forward{fwd}, upward{up} {}
-};
-
-Vec3f* projection(Vec3f a, Vec3f b, Vec3f c) {
-}
-
-void rasterization(std::vector<Vec3f> triangle, TGAImage& framebuffer, TGAColor color) {
-    if (triangle.size() < 3) {
-        std::cerr << "vertices less than 3." << std::endl;
-        return;
-    }
-    
-    // TODO 
-}
-
 int main(int argc, char** argv) {
-    Camera camera((float[]){0.0f, 0.0f, 1.0f}, (float[]){0.0f, 0.0f, -1.0f}, (float[]){0.0f, 1.0f, 0.0f});
-
     drawModel();
 
     return 0;
