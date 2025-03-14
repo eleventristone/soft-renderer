@@ -102,6 +102,7 @@ class Camera {
 };
 
 Vec3f* projection(Vec3f a, Vec3f b, Vec3f c) {
+    // TODO
 }
 
 void rasterization(std::vector<Vec3f> triangle, TGAImage& framebuffer, TGAColor color) {
