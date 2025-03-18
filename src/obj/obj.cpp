@@ -1,4 +1,4 @@
-#include "../../include/obj/obj.h"
+#include "../../include/obj/obj.hpp"
 #include <sstream>
 #include <iostream>
 #include <fstream>
