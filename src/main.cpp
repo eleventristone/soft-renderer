@@ -5,6 +5,10 @@
 
 #include <cmath>
 #include <vector>
+#include <chrono>
+#include <sstream>
+#include <ctime>
+#include <iomanip>
 #include "../third_party/tgaimage/tgaimage.h"
 #include "../include/tools/file.hpp"
 #include "../include/obj/obj.hpp"
@@ -16,6 +20,13 @@ constexpr TGAColor green = {0, 255, 0, 255};
 constexpr TGAColor red = {0, 0, 255, 255};
 constexpr TGAColor blue = {255, 128, 64, 255};
 constexpr TGAColor yellow = {0, 200, 255, 255};
+
+constexpr float left = -2.;
+constexpr float right = 1.;
+constexpr float top = 2.;
+constexpr float bottom = -1.;
+constexpr float near = -1.;
+constexpr float far = 1.;
 
 constexpr int width = 512;
 constexpr int height = 512;
@@ -56,14 +67,14 @@ Matrixf view(const Camera& camera) {
     // TODO
 }
 
-// 投影变换：将视图坐标系中的三维点映射到NDC(camera -> NDC)，如果使用的是透视投影，还需要进行透视除法
+// 投影变换：将视图坐标系中的三维点映射到裁剪空间(clip space)，在经过透视除法，转换到NDC（如果是正交投影，则不需要透视除法)
 Matrixf projection(bool perspective = true) {
     if (perspective) {
         return Matrixf{
-            4, 4, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}};
+            4, 4, {2 * near / (right - left), 0, (right + left) / (right - left), 0, 0, 2 * near / (top - bottom), (top + bottom) / (top - bottom), 0, 0, 0, -(far + near) / (far - near), -2 * far * near / (far - near), 0, 0, -1, 0}};
     } else {  // orthographic
         return Matrixf{
-            4, 4, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 5, 0, 0, 0, 1}};
+            4, 4, {2 / (right - left), 0, 0, -(right + left) / (right - left), 0, 2 / (top - bottom), 0, -(top + bottom) / (top - bottom), 0, 0, 2 / (far - near), -(far + near) / (far - near), 0, 0, 0, 1}};
     }
 }
 
@@ -73,22 +84,22 @@ Vector3f toScreen(const Vector3f& input) {
 }
 
 // 光栅化
-void rasterization(std::vector<Vector3f> triangle, TGAImage& framebuffer, TGAColor color, int* zBuffer) {
+void rasterization(std::vector<Vector3f> triangle, TGAImage& framebuffer, TGAColor color, float* zBuffer) {
     if (triangle.size() < 3) {
         std::cerr << "vertices less than 3." << std::endl;
         return;
     }
 
     // 传进来的已经是视口变换后的坐标，此时坐标值是float类型的int值
-    int minX = std::min(triangle[2].x, std::min(triangle[0].x, triangle[1].x));
-    int minY = std::min(triangle[2].y, std::min(triangle[0].y, triangle[1].y));
-    int maxX = std::max(triangle[2].x, std::max(triangle[0].x, triangle[1].x));
-    int maxY = std::max(triangle[2].y, std::max(triangle[0].y, triangle[1].y));
+    float minX = std::min(triangle[2].x, std::min(triangle[0].x, triangle[1].x));
+    float minY = std::min(triangle[2].y, std::min(triangle[0].y, triangle[1].y));
+    float maxX = std::max(triangle[2].x, std::max(triangle[0].x, triangle[1].x));
+    float maxY = std::max(triangle[2].y, std::max(triangle[0].y, triangle[1].y));
 
     float area = (triangle[0].x * (triangle[1].y - triangle[2].y) + triangle[1].x * (triangle[2].y - triangle[0].y) + triangle[2].x * (triangle[0].y - triangle[1].y));  // 这里不除以2，因为下面计算子三角形，叉乘时也不除以2，这样直接做除法运算就行
 
-    for (int x = minX; x <= maxX; x++) {
-        for (int y = minY; y <= maxY; y++) {
+    for (float x = minX; x <= maxX; x++) {
+        for (float y = minY; y <= maxY; y++) {
             // 向量叉乘性质，结果正负值相同说明在同一侧，即内侧
             float pab = triangle[0].x * (triangle[1].y - y) + triangle[1].x * (y - triangle[0].y) + x * (triangle[0].y - triangle[1].y);  // Spab = AB x AP / 2
             float pbc = triangle[1].x * (triangle[2].y - y) + triangle[2].x * (y - triangle[1].y) + x * (triangle[1].y - triangle[2].y);  // Spbc = BC x BP / 2
@@ -97,14 +108,18 @@ void rasterization(std::vector<Vector3f> triangle, TGAImage& framebuffer, TGACol
             // 利用重心坐标法计算z，即三角形内部一点P必定能写成 P=αA+βB+γC 的形式，且 α+β+γ=1，计算投影平面上三角形的α β γ值后，再使用权重乘以三个顶点的z值，获得一个插值出来的z值（虽然和实际坐标的z值未必一致，但是足以表达深度值depth）
             float z = pbc / area * triangle[0].z + pac / area * triangle[1].z + pab / area * triangle[2].z;
 
+            if (z < 0 || z > 1 || z != z) {  // z!=z用于判断NaN
+                continue;
+            }
+
             // 只绘制正面（默认逆时针为正方向）
             if (pab >= 0 && pbc >= 0 && pac >= 0) {
                 // std::cout << zBuffer[x * width + y] << " | " << z << std::endl;
-                if (zBuffer[x * height + y] < z) {
+                if (zBuffer[int(x * height + y)] < z) {
                     continue;
                 } else {
                     framebuffer.set(x, y, color);
-                    zBuffer[x * height + y] = z;
+                    zBuffer[int(x * height + y)] = z;
                 }
             }
         }
@@ -119,9 +134,9 @@ int main(int argc, char** argv) {
     Obj obj;
     obj.Parse(ReadFile("../model/african_head.obj"));
 
-    int zBuffer[width * height];
+    float zBuffer[width * height];
     for (int i = 0; i < width * height; i++) {
-        zBuffer[i] = INT_MAX;
+        zBuffer[i] = 1.01;
     }
 
     Matrixf proj = projection(false);
@@ -130,19 +145,6 @@ int main(int argc, char** argv) {
         Matrixf p1 = proj * (Matrixf{4, 1, {obj.vertices[obj.indices[i] * 3], obj.vertices[obj.indices[i] * 3 + 1], obj.vertices[obj.indices[i] * 3 + 2], 1}});
         Matrixf p2 = proj * (Matrixf{4, 1, {obj.vertices[obj.indices[i + 1] * 3], obj.vertices[obj.indices[i + 1] * 3 + 1], obj.vertices[obj.indices[i + 1] * 3 + 2], 1}});
         Matrixf p3 = proj * (Matrixf{4, 1, {obj.vertices[obj.indices[i + 2] * 3], obj.vertices[obj.indices[i + 2] * 3 + 1], obj.vertices[obj.indices[i + 2] * 3 + 2], 1}});
-
-        // std::cout << "p1: " << p1 << std::endl;
-        // std::cout << "p2: " << p2 << std::endl;
-        // std::cout << "p3: " << p3 << std::endl;
-
-        // rasterization(
-        //     std::vector<Vector3f>{
-        //         toScreen(Vector3f{obj.vertices[obj.indices[i] * 3], obj.vertices[obj.indices[i] * 3 + 1], obj.vertices[obj.indices[i] * 3 + 2]}),
-        //         toScreen(Vector3f{obj.vertices[obj.indices[i + 1] * 3], obj.vertices[obj.indices[i + 1] * 3 + 1], obj.vertices[obj.indices[i + 1] * 3 + 2]}),
-        //         toScreen(Vector3f{obj.vertices[obj.indices[i + 2] * 3], obj.vertices[obj.indices[i + 2] * 3 + 1], obj.vertices[obj.indices[i + 2] * 3 + 2]})},
-        //     framebuffer,
-        //     randColor(),
-        //     zBuffer);
 
         rasterization(
             std::vector<Vector3f>{
@@ -154,7 +156,13 @@ int main(int argc, char** argv) {
             zBuffer);
     }
 
-    framebuffer.write_tga_file("../temp/framebuffer.tga");
+    std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm buf;
+    localtime_r(&now, &buf);
+    std::ostringstream oss;
+    oss << "../temp/framebuffer" << std::put_time(&buf, "%Y%m%d%H%M%S") << ".tga";
+
+    framebuffer.write_tga_file(oss.str());
 
     return 0;
 }
