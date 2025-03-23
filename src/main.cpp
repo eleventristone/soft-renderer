@@ -21,12 +21,13 @@ constexpr TGAColor red = {0, 0, 255, 255};
 constexpr TGAColor blue = {255, 128, 64, 255};
 constexpr TGAColor yellow = {0, 200, 255, 255};
 
+// 注意这些是基于相机坐标系的
 constexpr float left = -1.;
 constexpr float right = 1.;
 constexpr float top = 1.;
 constexpr float bottom = -1.;
-constexpr float near = -10.;
-constexpr float far = 10.;
+constexpr float near = -2.;
+constexpr float far = -4.;
 
 constexpr float fov = 120.;
 
@@ -96,48 +97,50 @@ Matrixf view(const Camera& camera) {
 
 // 投影变换：将视图坐标系中的三维点映射到裁剪空间(clip space)，再经过透视除法，转换到NDC（如果是正交投影，则不需要透视除法)
 Matrixf projection(bool perspective = true) {
-    // float aspectRatio = width / height;
-    // float alpha =
-    
+    Matrixf perspToOrtho = {4,
+                            4,
+                            {near, 0, 0, 0,
+                             0, near, 0, 0,
+                             0, 0, near + far, -(near * far),
+                             0, 0, 1, 0}};
+
+    Matrixf translation = {4,
+                           4,
+                           {1, 0, 0, -(left + right) / 2,
+                            0, 1, 0, -(top + bottom) / 2,
+                            0, 0, 1, -(near + far) / 2,
+                            0, 0, 0, 1}};
+
+    Matrixf scale = {4,
+                     4,
+                     {2 / (right - left), 0, 0, 0,
+                      0, 2 / (top - bottom), 0, 0,
+                      0, 0, 2 / (near - far), 0,  // near的z值比far要大，因为观测方向是-z轴，越远反而越小
+                      0, 0, 0, 1}};
+
+    Matrixf ortho = scale * translation;  // 先平移再缩放
+
+    // Matrixf ortho ={
+    //     4,
+    //     4,
+    //     {2 / (right - left), 0, 0, -(right + left) / (right - left),
+    //      0, 2 / (top - bottom), 0, -(top + bottom) / (top - bottom),
+    //      0, 0, -2 / (far - near), -(far + near) / (far - near),
+    //      0, 0, 0, 1}};
+
     if (perspective) {
-        return Matrixf{
-            4,
-            4,
-            {2 * near / (right - left), 0, (right + left) / (right - left), 0,
-             0, 2 * near / (top - bottom), (top + bottom) / (top - bottom), 0,
-             0, 0, -(far + near) / (far - near), -2 * far * near / (far - near),
-             0, 0, -1, 0}};
-    } else {  // orthographic
-        Matrixf translation = {4,
-                               4,
-                               {1, 0, 0, -(left + right) / 2,
-                                0, 1, 0, -(top + bottom) / 2,
-                                0, 0, 1, -(near + far) / 2,
-                                0, 0, 0, 1}};
-
-        Matrixf scale = {4,
-                         4,
-                         {2 / (right - left), 0, 0, 0,
-                          0, 2 / (top - bottom), 0, 0,
-                          0, 0, 2 / (near - far), 0,  // near的z值比far要大，因为+z轴的方向是从far到near的
-                          0, 0, 0, 1}};
-
-        // 先平移再缩放
-        return scale * translation;
-
-        // return Matrixf{
-        //     4,
-        //     4,
-        //     {2 / (right - left), 0, 0, -(right + left) / (right - left),
-        //      0, 2 / (top - bottom), 0, -(top + bottom) / (top - bottom),
-        //      0, 0, -2 / (far - near), -(far + near) / (far - near),
-        //      0, 0, 0, 1}};
+        // TODO 目前虽然能看到点东西，但并不符合预期
+        return ortho * perspToOrtho;
+    } else {
+        return ortho;
     }
 }
 
 // 视口变换：从NDC(-1 ~ 1)到屏幕空间坐标(0 ~ width/height/1)
 Vector3f toScreen(const Vector3f& input) {
-    return Vector3f(int((input.x + 1.) * width / 2. + .5), int((input.y + 1.) * height / 2. + .5), (input.z + 1.) / 2);
+    return Vector3f(int((input.x + 1.) * width / 2. + .5),
+                    int((input.y + 1.) * height / 2. + .5),
+                    (-input.z + 1.) / 2);  // 这里原先near->far的z值为1->-1，但绘制时是按照z值越小越靠前来判断的，所以需要反过来
 }
 
 // 光栅化
@@ -188,7 +191,7 @@ void rasterization(std::vector<Vector3f> triangle, TGAImage& framebuffer, TGACol
 }
 
 int main(int argc, char** argv) {
-    float pos[3] = {0.5f, 0.5f, 3.0f};
+    float pos[3] = {0.f, 0.f, 3.0f};
     float fwd[3] = {0.0f, 0.0f, -1.0f};
     float up[3] = {0.0f, 1.0f, 0.0f};
 
@@ -204,7 +207,7 @@ int main(int argc, char** argv) {
         zBuffer[i] = __FLT_MAX__;
     }
 
-    Matrixf mat = projection(false) * view(camera);
+    Matrixf mat = projection(true) * view(camera);
     // Matrixf mat = projection(false);
 
     std::cout << "mat: \n"
@@ -225,13 +228,15 @@ int main(int argc, char** argv) {
             zBuffer);
     }
 
-    std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    std::tm buf;
-    localtime_r(&now, &buf);
-    std::ostringstream oss;
-    oss << "../temp/framebuffer" << std::put_time(&buf, "%Y%m%d%H%M%S") << ".tga";
+    // std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    // std::tm buf;
+    // localtime_r(&now, &buf);
+    // std::ostringstream oss;
+    // oss << "../temp/framebuffer" << std::put_time(&buf, "%Y%m%d%H%M%S") << ".tga";
 
-    framebuffer.write_tga_file(oss.str());
+    // framebuffer.write_tga_file(oss.str());
+
+    framebuffer.write_tga_file("../temp/framebuffer.tga");
 
     return 0;
 }
