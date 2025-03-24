@@ -7,7 +7,7 @@ Vector3f::Vector3f(float fill)
     : coords{fill, fill, fill} {};
 
 Vector3f::Vector3f(float x, float y, float z)
-    : coords({x, y, z}) {};
+    : coords{x, y, z} {};
 
 Vector3f::Vector3f(float* xyz)
     : coords{xyz[0], xyz[1], xyz[2]} {};

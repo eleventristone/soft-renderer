@@ -22,12 +22,12 @@ constexpr TGAColor blue = {255, 128, 64, 255};
 constexpr TGAColor yellow = {0, 200, 255, 255};
 
 // 注意这些是基于相机坐标系的
-constexpr float left = -1.;
-constexpr float right = 1.;
-constexpr float top = 1.;
-constexpr float bottom = -1.;
-constexpr float near = -2.;
-constexpr float far = -4.;
+constexpr float left = -2.;
+constexpr float right = 2.;
+constexpr float top = 2.;
+constexpr float bottom = -2.;
+constexpr float near = -2;
+constexpr float far = -40.;
 
 constexpr float fov = 120.;
 
@@ -99,10 +99,10 @@ Matrixf view(const Camera& camera) {
 Matrixf projection(bool perspective = true) {
     Matrixf perspToOrtho = {4,
                             4,
-                            {near, 0, 0, 0,
-                             0, near, 0, 0,
-                             0, 0, near + far, -(near * far),
-                             0, 0, 1, 0}};
+                            {-near, 0, 0, 0,
+                             0, -near, 0, 0,
+                             0, 0, -(near + far), near * far,
+                             0, 0, -1, 0}};
 
     Matrixf translation = {4,
                            4,
@@ -115,7 +115,7 @@ Matrixf projection(bool perspective = true) {
                      4,
                      {2 / (right - left), 0, 0, 0,
                       0, 2 / (top - bottom), 0, 0,
-                      0, 0, 2 / (near - far), 0,  // near的z值比far要大，因为观测方向是-z轴，越远反而越小
+                      0, 0, 2 / (far - near), 0,  // near的z值比far要大，因为观测方向是-z轴，越远反而越小，考虑到NDC是左手坐标系（即+z方向向内，-z方向向外），因此这里缩放的时候把z值反转
                       0, 0, 0, 1}};
 
     Matrixf ortho = scale * translation;  // 先平移再缩放
@@ -140,7 +140,7 @@ Matrixf projection(bool perspective = true) {
 Vector3f toScreen(const Vector3f& input) {
     return Vector3f(int((input.x + 1.) * width / 2. + .5),
                     int((input.y + 1.) * height / 2. + .5),
-                    (-input.z + 1.) / 2);  // 这里原先near->far的z值为1->-1，但绘制时是按照z值越小越靠前来判断的，所以需要反过来
+                    (input.z + 1.) / 2);  // 这里原先near->far的z值为1->-1，但绘制时是按照z值越小越靠前来判断的，所以需要反过来
 }
 
 // 光栅化
@@ -228,15 +228,13 @@ int main(int argc, char** argv) {
             zBuffer);
     }
 
-    // std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    // std::tm buf;
-    // localtime_r(&now, &buf);
-    // std::ostringstream oss;
-    // oss << "../temp/framebuffer" << std::put_time(&buf, "%Y%m%d%H%M%S") << ".tga";
+    std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm buf;
+    localtime_r(&now, &buf);
+    std::ostringstream oss;
+    oss << "../temp/framebuffer" << std::put_time(&buf, "%Y%m%d%H%M%S") << ".tga";
 
-    // framebuffer.write_tga_file(oss.str());
-
-    framebuffer.write_tga_file("../temp/framebuffer.tga");
+    framebuffer.write_tga_file(oss.str());
 
     return 0;
 }
