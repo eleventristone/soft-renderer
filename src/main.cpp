@@ -21,15 +21,16 @@ constexpr TGAColor red = {0, 0, 255, 255};
 constexpr TGAColor blue = {255, 128, 64, 255};
 constexpr TGAColor yellow = {0, 200, 255, 255};
 
-// 注意这些是基于相机坐标系的
-constexpr float left = -2.;
-constexpr float right = 2.;
-constexpr float top = 2.;
-constexpr float bottom = -2.;
+// 注意这些是基于相机坐标系的，left/right/top/bottom代表近裁剪面的左/右/上/下，透视投影时可以用fov/aspect替代
+constexpr float left = -1.;
+constexpr float right = 1.;
+constexpr float top = 1.;
+constexpr float bottom = -1.;
 constexpr float near = -2;
-constexpr float far = -40.;
+constexpr float far = -4.;
 
-constexpr float fov = 120.;
+// constexpr float fov = 120.;
+// constexpr float aspect = 1.;
 
 constexpr int width = 512;
 constexpr int height = 512;
@@ -52,17 +53,59 @@ class Camera {
         : position{pos}, forward{fwd}, upward{up} {}
 };
 
-// 模型变换：将对象从自己的局部坐标系转换到世界坐标系的变换(local -> world)
-Matrixf model() {
-    // TODO ...
-
-    return Matrixf{
+/*
+    模型变换：将对象从自己的局部坐标系转换到世界坐标系的变换(local -> world)
+    由于模型变换中，顺序会影响变换的最终结果，这里定义函数中变换顺序为缩放 -> 旋转 -> 平移（SRT）,旋转顺序为绕X -> Y -> Z，旋转方向默认逆时针，传入绕三个轴的旋转弧度
+*/
+Matrixf model(Vector3f s, Vector3f r, Vector3f t) {
+    /*
+        考虑到传入的坐标已经是基于世界坐标系下的坐标，因此实际上不需要这个变换矩阵（用单位矩阵替代）
+        否则从物体本身的局部坐标系到世界坐标系（如GIS中将模型放置到地球上），需要先经过这个矩阵进行一次变换
+    */
+    Matrixf localToWorld = {
         4,
         4,
         {1, 0, 0, 0,
          0, 1, 0, 0,
          0, 0, 1, 0,
          0, 0, 0, 1}};
+
+    Matrixf scale = {4,
+                     4,
+                     {s.x, 0, 0, 0,
+                      0, s.y, 0, 0,
+                      0, 0, s.z, 0,
+                      0, 0, 0, 1}};
+
+    Matrixf rotateX = {4,
+                       4,
+                       {1, 0, 0, 0,
+                        0, std::cos(r.x), -std::sin(r.x), 0,
+                        0, std::sin(r.x), std::cos(r.x), 0,
+                        0, 0, 0, 1}};
+
+    Matrixf rotateY = {4,
+                       4,
+                       {std::cos(r.y), 0, std::sin(r.y), 0,
+                        0, 1, 0, 0,
+                        -std::sin(r.y), 0, std::cos(r.y), 0,
+                        0, 0, 0, 1}};
+
+    Matrixf rotateZ = {4,
+                       4,
+                       {std::cos(r.z), -std::sin(r.z), 0, 0,
+                        std::sin(r.z), std::cos(r.z), 0, 0,
+                        0, 0, 1, 0,
+                        0, 0, 0, 1}};
+
+    Matrixf translation = {4,
+                           4,
+                           {1, 0, 0, t.x,
+                            0, 1, 0, t.y,
+                            0, 0, 1, t.z,
+                            0, 0, 0, 1}};
+
+    return translation * rotateZ * rotateY * rotateX * scale * localToWorld;
 }
 
 // 视图变换/相机变换：将世界坐标系下的所有对象变换到观察者或相机的坐标系中(world -> camera)
@@ -95,14 +138,14 @@ Matrixf view(const Camera& camera) {
     return rotation * translation;
 }
 
-// 投影变换：将视图坐标系中的三维点映射到裁剪空间(clip space)，再经过透视除法，转换到NDC（如果是正交投影，则不需要透视除法)
+// 投影变换：将视图坐标系中的三维点映射到裁剪空间(clip space)，再变换到NDC（如果是透视投影，需要额外做透视除法，但透视除法需要除以未知数w，属于非线性变化，没法直接用矩阵表示)
 Matrixf projection(bool perspective = true) {
     Matrixf perspToOrtho = {4,
                             4,
                             {-near, 0, 0, 0,
                              0, -near, 0, 0,
                              0, 0, -(near + far), near * far,
-                             0, 0, -1, 0}};
+                             0, 0, -1, 0}};  // 这一步计算后的w=-z，因此后续需要做透视除法
 
     Matrixf translation = {4,
                            4,
@@ -115,21 +158,12 @@ Matrixf projection(bool perspective = true) {
                      4,
                      {2 / (right - left), 0, 0, 0,
                       0, 2 / (top - bottom), 0, 0,
-                      0, 0, 2 / (far - near), 0,  // near的z值比far要大，因为观测方向是-z轴，越远反而越小，考虑到NDC是左手坐标系（即+z方向向内，-z方向向外），因此这里缩放的时候把z值反转
+                      0, 0, 2 / (near - far), 0,
                       0, 0, 0, 1}};
 
     Matrixf ortho = scale * translation;  // 先平移再缩放
 
-    // Matrixf ortho ={
-    //     4,
-    //     4,
-    //     {2 / (right - left), 0, 0, -(right + left) / (right - left),
-    //      0, 2 / (top - bottom), 0, -(top + bottom) / (top - bottom),
-    //      0, 0, -2 / (far - near), -(far + near) / (far - near),
-    //      0, 0, 0, 1}};
-
     if (perspective) {
-        // TODO 目前虽然能看到点东西，但并不符合预期
         return ortho * perspToOrtho;
     } else {
         return ortho;
@@ -140,7 +174,7 @@ Matrixf projection(bool perspective = true) {
 Vector3f toScreen(const Vector3f& input) {
     return Vector3f(int((input.x + 1.) * width / 2. + .5),
                     int((input.y + 1.) * height / 2. + .5),
-                    (input.z + 1.) / 2);  // 这里原先near->far的z值为1->-1，但绘制时是按照z值越小越靠前来判断的，所以需要反过来
+                    (-input.z + 1.) / 2);  // 由于相机坐标系的观测方向为-z轴，因此近处的z值大，远处的z值小。但深度越小越靠前，因此需要把z值先取反
 }
 
 // 光栅化
@@ -207,8 +241,7 @@ int main(int argc, char** argv) {
         zBuffer[i] = __FLT_MAX__;
     }
 
-    Matrixf mat = projection(true) * view(camera);
-    // Matrixf mat = projection(false);
+    Matrixf mat = projection(true) * view(camera) * model(Vector3f{.5, .5, .5}, Vector3f{M_PI / 4, M_PI / 4, M_PI / 4}, Vector3f{.5, .5, .5});
 
     std::cout << "mat: \n"
               << mat << std::endl;
@@ -217,6 +250,10 @@ int main(int argc, char** argv) {
         Matrixf p1 = mat * (Matrixf{4, 1, {obj.vertices[obj.indices[i] * 3], obj.vertices[obj.indices[i] * 3 + 1], obj.vertices[obj.indices[i] * 3 + 2], 1}});
         Matrixf p2 = mat * (Matrixf{4, 1, {obj.vertices[obj.indices[i + 1] * 3], obj.vertices[obj.indices[i + 1] * 3 + 1], obj.vertices[obj.indices[i + 1] * 3 + 2], 1}});
         Matrixf p3 = mat * (Matrixf{4, 1, {obj.vertices[obj.indices[i + 2] * 3], obj.vertices[obj.indices[i + 2] * 3 + 1], obj.vertices[obj.indices[i + 2] * 3 + 2], 1}});
+        // 透视除法
+        p1.Scale(1 / p1(3));
+        p2.Scale(1 / p2(3));
+        p3.Scale(1 / p3(3));
 
         rasterization(
             std::vector<Vector3f>{
