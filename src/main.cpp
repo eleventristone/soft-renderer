@@ -59,16 +59,10 @@ class Camera {
 */
 Matrixf model(Vector3f s, Vector3f r, Vector3f t) {
     /*
-        考虑到传入的坐标已经是基于世界坐标系下的坐标，因此实际上不需要这个变换矩阵（用单位矩阵替代）
-        否则从物体本身的局部坐标系到世界坐标系（如GIS中将模型放置到地球上），需要先经过这个矩阵进行一次变换
+        这里设定obj模型文件的坐标是基于世界坐标系的，因此不需要经过局部到世界的矩阵变换
+        否则，如果平移、缩放、旋转变化是基于局部坐标系的，需要先进行变换后，再转换到世界坐标系；如果平移、缩放、旋转变化是基于世界坐标系的，需要先转换到世界坐标系后再进行变换
     */
-    Matrixf localToWorld = {
-        4,
-        4,
-        {1, 0, 0, 0,
-         0, 1, 0, 0,
-         0, 0, 1, 0,
-         0, 0, 0, 1}};
+    // Matrixf localToWorld = {};
 
     Matrixf scale = {4,
                      4,
@@ -105,7 +99,7 @@ Matrixf model(Vector3f s, Vector3f r, Vector3f t) {
                             0, 0, 1, t.z,
                             0, 0, 0, 1}};
 
-    return translation * rotateZ * rotateY * rotateX * scale * localToWorld;
+    return translation * rotateZ * rotateY * rotateX * scale;
 }
 
 // 视图变换/相机变换：将世界坐标系下的所有对象变换到观察者或相机的坐标系中(world -> camera)
@@ -190,7 +184,7 @@ void rasterization(std::vector<Vector3f> triangle, TGAImage& framebuffer, TGACol
     float maxX = std::min(width + 0.f, std::max(triangle[2].x, std::max(triangle[0].x, triangle[1].x)));
     float maxY = std::min(height + 0.f, std::max(triangle[2].y, std::max(triangle[0].y, triangle[1].y)));
 
-    float area = (triangle[0].x * (triangle[1].y - triangle[2].y) + triangle[1].x * (triangle[2].y - triangle[0].y) + triangle[2].x * (triangle[0].y - triangle[1].y));  // 这里不除以2，因为下面计算子三角形，叉乘时也不除以2，这样直接做除法运算就行
+    float area = (triangle[0].x * (triangle[1].y - triangle[2].y) + triangle[1].x * (triangle[2].y - triangle[0].y) + triangle[2].x * (triangle[0].y - triangle[1].y)) / 2.;
 
     // if (area < 1e-6) {
     //     return;
@@ -199,9 +193,9 @@ void rasterization(std::vector<Vector3f> triangle, TGAImage& framebuffer, TGACol
     for (int x = minX; x <= maxX; x++) {
         for (int y = minY; y <= maxY; y++) {
             // 向量叉乘性质，结果正负值相同说明在同一侧，即内侧
-            float pab = triangle[0].x * (triangle[1].y - y) + triangle[1].x * (y - triangle[0].y) + x * (triangle[0].y - triangle[1].y);  // Spab = AB x AP / 2
-            float pbc = triangle[1].x * (triangle[2].y - y) + triangle[2].x * (y - triangle[1].y) + x * (triangle[1].y - triangle[2].y);  // Spbc = BC x BP / 2
-            float pac = triangle[2].x * (triangle[0].y - y) + triangle[0].x * (y - triangle[2].y) + x * (triangle[2].y - triangle[0].y);  // Spac = CA x CP / 2
+            float pab = (triangle[0].x * (triangle[1].y - y) + triangle[1].x * (y - triangle[0].y) + x * (triangle[0].y - triangle[1].y)) / 2.;  // Spab = AB x AP / 2
+            float pbc = (triangle[1].x * (triangle[2].y - y) + triangle[2].x * (y - triangle[1].y) + x * (triangle[1].y - triangle[2].y)) / 2.;  // Spbc = BC x BP / 2
+            float pac = (triangle[2].x * (triangle[0].y - y) + triangle[0].x * (y - triangle[2].y) + x * (triangle[2].y - triangle[0].y)) / 2.;  // Spac = CA x CP / 2
 
             // 利用重心坐标法计算z，即三角形内部一点P必定能写成 P=αA+βB+γC 的形式，且 α+β+γ=1，计算投影平面上三角形的α β γ值后，再使用权重乘以三个顶点的z值，获得一个插值出来的z值（虽然和实际坐标的z值未必一致，但是足以表达深度值depth）
             float z = pbc / area * triangle[0].z + pac / area * triangle[1].z + pab / area * triangle[2].z;
