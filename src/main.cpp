@@ -184,7 +184,7 @@ void rasterization(std::vector<Vector3f> triangle, TGAImage& framebuffer, TGACol
     float maxX = std::min(width + 0.f, std::max(triangle[2].x, std::max(triangle[0].x, triangle[1].x)));
     float maxY = std::min(height + 0.f, std::max(triangle[2].y, std::max(triangle[0].y, triangle[1].y)));
 
-    float area = (triangle[0].x * (triangle[1].y - triangle[2].y) + triangle[1].x * (triangle[2].y - triangle[0].y) + triangle[2].x * (triangle[0].y - triangle[1].y)) / 2.;
+    float area = std::sqrt(triangle[0].x * (triangle[1].y - triangle[2].y) + triangle[1].x * (triangle[2].y - triangle[0].y) + triangle[2].x * (triangle[0].y - triangle[1].y)) / 2.;
 
     // if (area < 1e-6) {
     //     return;
@@ -193,9 +193,9 @@ void rasterization(std::vector<Vector3f> triangle, TGAImage& framebuffer, TGACol
     for (int x = minX; x <= maxX; x++) {
         for (int y = minY; y <= maxY; y++) {
             // 向量叉乘性质，结果正负值相同说明在同一侧，即内侧
-            float pab = (triangle[0].x * (triangle[1].y - y) + triangle[1].x * (y - triangle[0].y) + x * (triangle[0].y - triangle[1].y)) / 2.;  // Spab = AB x AP / 2
-            float pbc = (triangle[1].x * (triangle[2].y - y) + triangle[2].x * (y - triangle[1].y) + x * (triangle[1].y - triangle[2].y)) / 2.;  // Spbc = BC x BP / 2
-            float pac = (triangle[2].x * (triangle[0].y - y) + triangle[0].x * (y - triangle[2].y) + x * (triangle[2].y - triangle[0].y)) / 2.;  // Spac = CA x CP / 2
+            float pab = std::sqrt(triangle[0].x * (triangle[1].y - y) + triangle[1].x * (y - triangle[0].y) + x * (triangle[0].y - triangle[1].y)) / 2.;  // Spab = |AB x AP| / 2
+            float pbc = std::sqrt(triangle[1].x * (triangle[2].y - y) + triangle[2].x * (y - triangle[1].y) + x * (triangle[1].y - triangle[2].y)) / 2.;  // Spbc = |BC x BP| / 2
+            float pac = std::sqrt(triangle[2].x * (triangle[0].y - y) + triangle[0].x * (y - triangle[2].y) + x * (triangle[2].y - triangle[0].y)) / 2.;  // Spac = |CA x CP| / 2
 
             // 利用重心坐标法计算z，即三角形内部一点P必定能写成 P=αA+βB+γC 的形式，且 α+β+γ=1，计算投影平面上三角形的α β γ值后，再使用权重乘以三个顶点的z值，获得一个插值出来的z值（虽然和实际坐标的z值未必一致，但是足以表达深度值depth）
             float z = pbc / area * triangle[0].z + pac / area * triangle[1].z + pab / area * triangle[2].z;
